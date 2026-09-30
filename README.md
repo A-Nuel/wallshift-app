@@ -1,87 +1,33 @@
-# WallShift — setup
+# WallShift
 
-I couldn't run `flutter`/Android SDK tooling in this sandbox (it's not
-installed here), so this package has the **app code** but not the
-boilerplate `flutter create` normally generates (gradlew, wrapper jar,
-default gradle files, launcher icons). You'll generate that boilerplate on
-your own machine, then drop this code on top. About 10 minutes.
+Flutter wallpaper rotation app with a native Android background engine.
 
-## 1. Scaffold the project
+Rotates wallpapers on **screen wake**, on a **timed interval** (AlarmManager), and with a **WorkManager** watchdog (15‑minute floor). Survives reboot via `BOOT_COMPLETED`.
 
-```bash
-flutter create --org com.nuel --project-name wallshift -a kotlin -i swift wallshift_app
-```
+## Install (phone-only)
 
-This gives you a real `android/` folder with a working gradle setup.
+1. Open this repo on GitHub → **Actions** → **Build APK**
+2. Open the latest successful run → **Artifacts** → download **wallshift-apk**
+3. Unzip if needed → install `app-release.apk` on your Android phone  
+   (allow install from browser/files if prompted)
 
-## 2. Copy this code in
+On HyperOS/MIUI (POCO, Redmi, Xiaomi): during onboarding, set **No battery restrictions** and enable **Autostart**, or rotation may stop after idle.
 
-- Copy everything from this package's `lib/` over the generated `lib/`
-  (replace `main.dart`).
-- Copy this package's `pubspec.yaml` over the generated one (or merge the
-  `dependencies:` block if you changed the org/name).
-- Copy every `.kt` file from `android_native/kotlin/` into:
-  `android/app/src/main/kotlin/com/nuel/wallshift/`
-  (create the folder if `flutter create` used a different package path —
-  check `android/app/build.gradle`'s `applicationId` matches `com.nuel.wallshift`,
-  or update the `package` line at the top of each `.kt` file to match yours).
-- Open `android/app/src/main/AndroidManifest.xml` and merge in everything
-  from `android_native/AndroidManifest_ADDITIONS.xml` (permissions as
-  children of `<manifest>`, service/receivers as children of `<application>`).
-
-## 3. Add the native WorkManager dependency
-
-The timed backup uses `androidx.work` directly in Kotlin (not the Flutter
-workmanager plugin — no need to boot a Flutter engine in the background
-just to change a wallpaper). Add to `android/app/build.gradle`:
-
-```gradle
-dependencies {
-    implementation "androidx.work:work-runtime-ktx:2.9.1"
-}
-```
-
-Also set, in the same file:
-
-```gradle
-android {
-    defaultConfig {
-        minSdkVersion 23   // needs Marshmallow+ for battery-optimization APIs
-    }
-}
-```
-
-## 4. Install packages and run
+## Build locally
 
 ```bash
-cd wallshift_app
-flutter pub get
-flutter run
+# Requires Flutter SDK
+flutter create --org com.nuel --project-name wallshift -a kotlin -i swift wallshift_local
+# Then copy lib/, pubspec.yaml, and android_native Kotlin + manifest as in CI
+cd wallshift_local && flutter pub get && flutter run
 ```
 
-## How the rotation actually works
+Or push to `main` / run **workflow_dispatch** — CI scaffolds and builds the release APK for you.
 
-| Trigger | Reliability | Interval |
-|---|---|---|
-| `ACTION_SCREEN_ON` receiver, registered by a foreground service | High while the service is alive | Every screen wake |
-| `AlarmManager` exact-alarm chain (self-rescheduling) | Good, but Doze can delay it under deep sleep | Your chosen interval, min 5 min |
-| `WorkManager` periodic job | Best OS-level survival — outlives app kills/reboots once re-enqueued | Every 15 min (Android's hard floor for periodic work) — re-arms the alarm chain and does a guaranteed wallpaper change |
-| `BOOT_COMPLETED` receiver | Restarts the service + worker after a restart | — |
+## Features
 
-So in practice: screen-wake changes are near-instant, the alarm chain
-covers the 5-minute cadence you asked for while the phone is reachable,
-and WorkManager is the backstop that guarantees a change happens at least
-every 15 minutes and repairs the other two layers if the OS killed them.
-That 15-minute floor on WorkManager is an Android platform limit, not
-something any app can configure around — the alarm chain is doing the real
-5-minute work.
-
-## POCO C71 (HyperOS/MIUI) note
-
-The onboarding flow in the app already walks the user through this, but
-for reference: HyperOS kills background apps aggressively unless you
-manually flip two switches — **Settings → Battery → App battery saver →
-WallShift → No restrictions**, and **Security app → Permissions →
-Autostart → enable WallShift**. Without both, expect the rotation to stop
-after the phone's been idle a while, even with all three trigger layers in
-place — that's an OS policy, not something code alone can fully defeat.
+- Pick & reorder images (stored in app documents so they survive reboots)
+- Auto-rotate on screen wake + timed backup (5–120 min)
+- Home / lock / both targets, shuffle on/off
+- Change wallpaper now
+- Onboarding for photo access + battery/autostart (HyperOS)

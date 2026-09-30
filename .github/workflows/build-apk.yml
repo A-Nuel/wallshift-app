@@ -1,0 +1,134 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.5"
+          channel: stable
+          cache: true
+
+      - name: Scaffold Flutter project and overlay app code
+        run: |
+          set -euo pipefail
+          WORK="$RUNNER_TEMP/wallshift_build"
+          mkdir -p "$WORK"
+          flutter create --org com.nuel --project-name wallshift -a kotlin --platforms=android "$WORK"
+
+          # Overlay Dart sources + pubspec
+          rm -rf "$WORK/lib"
+          cp -a lib "$WORK/lib"
+          cp pubspec.yaml "$WORK/pubspec.yaml"
+
+          # Native Kotlin (package com.nuel.wallshift)
+          KOTLIN_DIR="$WORK/android/app/src/main/kotlin/com/nuel/wallshift"
+          mkdir -p "$KOTLIN_DIR"
+          # Remove default MainActivity if flutter create put it elsewhere
+          find "$WORK/android/app/src/main/kotlin" -name 'MainActivity.kt' -delete || true
+          cp android_native/kotlin/com/nuel/wallshift/*.kt "$KOTLIN_DIR/"
+
+          # Merge manifest permissions + components
+          MANIFEST="$WORK/android/app/src/main/AndroidManifest.xml"
+          python3 - <<'PY'
+          import pathlib, re, sys
+          root = pathlib.Path(r"""$WORK""")
+          manifest = root / "android/app/src/main/AndroidManifest.xml"
+          additions = pathlib.Path("android_native/AndroidManifest_ADDITIONS.xml").read_text()
+
+          # Extract permission lines and application children from additions comments/sections
+          perms = re.findall(r'<uses-permission[^/]*/>', additions)
+          # service + receivers (multi-line blocks)
+          blocks = re.findall(
+              r'<(?:service|receiver)\b[\s\S]*?</(?:service|receiver)>',
+              additions,
+          )
+
+          text = manifest.read_text()
+
+          # Insert permissions before <application
+          if '<application' not in text:
+              sys.exit("No <application> in manifest")
+          perm_block = "\n".join(perms) + "\n"
+          text = text.replace("<application", perm_block + "    <application", 1)
+
+          # Insert service/receivers before closing </application>
+          insert = "\n".join(blocks) + "\n"
+          text = text.replace("</application>", insert + "    </application>", 1)
+
+          # Ensure activity still points at .MainActivity (default from flutter create)
+          manifest.write_text(text)
+          print("Manifest merged: +%d perms, +%d components" % (len(perms), len(blocks)))
+          PY
+
+          # minSdk + WorkManager dependency
+          APP_BUILD="$WORK/android/app/build.gradle"
+          if [ ! -f "$APP_BUILD" ]; then
+            APP_BUILD="$WORK/android/app/build.gradle.kts"
+          fi
+
+          if [[ "$APP_BUILD" == *.kts ]]; then
+            # Kotlin DSL
+            sed -i 's/minSdk\s*=\s*[0-9]*/minSdk = 23/' "$APP_BUILD" || true
+            if ! grep -q 'work-runtime-ktx' "$APP_BUILD"; then
+              # Add dependency block entry
+              if grep -q 'dependencies {' "$APP_BUILD"; then
+                sed -i '/dependencies {/a\    implementation("androidx.work:work-runtime-ktx:2.9.1")' "$APP_BUILD"
+              else
+                printf '\ndependencies {\n    implementation("androidx.work:work-runtime-ktx:2.9.1")\n}\n' >> "$APP_BUILD"
+              fi
+            fi
+          else
+            # Groovy
+            sed -i 's/minSdkVersion [0-9]*/minSdkVersion 23/' "$APP_BUILD" || true
+            sed -i 's/minSdk = [0-9]*/minSdk = 23/' "$APP_BUILD" || true
+            if ! grep -q 'work-runtime-ktx' "$APP_BUILD"; then
+              if grep -q 'dependencies {' "$APP_BUILD"; then
+                sed -i '/dependencies {/a\    implementation "androidx.work:work-runtime-ktx:2.9.1"' "$APP_BUILD"
+              else
+                printf '\ndependencies {\n    implementation "androidx.work:work-runtime-ktx:2.9.1"\n}\n' >> "$APP_BUILD"
+              fi
+            fi
+          fi
+
+          # permission_handler: allow photos permission mapping on Android
+          # (default is fine; ensure namespace for Android 13+)
+
+          # Export build dir for next steps
+          echo "BUILD_DIR=$WORK" >> "$GITHUB_ENV"
+          echo "Scaffolded at $WORK"
+          ls -la "$WORK"
+
+      - name: Flutter pub get
+        working-directory: ${{ env.BUILD_DIR }}
+        run: flutter pub get
+
+      - name: Build release APK
+        working-directory: ${{ env.BUILD_DIR }}
+        run: flutter build apk --release
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallshift-apk
+          path: ${{ env.BUILD_DIR }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
