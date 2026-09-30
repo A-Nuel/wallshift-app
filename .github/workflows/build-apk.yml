@@ -49,7 +49,7 @@ jobs:
 
           root = pathlib.Path(os.environ["WORK"])
 
-          # --- Manifest merge ---
+          # Manifest merge
           manifest = root / "android/app/src/main/AndroidManifest.xml"
           additions = pathlib.Path("android_native/AndroidManifest_ADDITIONS.xml").read_text()
           perms = re.findall(r"<uses-permission[^/]*/>", additions)
@@ -65,65 +65,28 @@ jobs:
           manifest.write_text(text)
           print("Manifest merged: +%d perms, +%d components" % (len(perms), len(blocks)))
 
-          # --- build.gradle / build.gradle.kts ---
+          # Add WorkManager only (do not touch minSdk / flutter {} block)
           groovy = root / "android/app/build.gradle"
           kts = root / "android/app/build.gradle.kts"
           app_build = groovy if groovy.exists() else kts
-          if not app_build.exists():
-              sys.exit("No app build.gradle found")
           src = app_build.read_text()
-          print("Patching", app_build)
-
-          # Force minSdk 23 without touching flutter.* property names
-          if app_build.suffix == ".kts":
-              src2, n = re.subn(
-                  r"minSdk\s*=\s*[^\n]+",
-                  "minSdk = 23",
-                  src,
-                  count=1,
-              )
-              if n == 0:
-                  src2 = re.sub(
-                      r"(defaultConfig\s*\{)",
-                      r"\1\n        minSdk = 23",
-                      src,
-                      count=1,
-                  )
-              dep_line = '    implementation("androidx.work:work-runtime-ktx:2.9.1")\n'
-          else:
-              src2, n = re.subn(
-                  r"minSdkVersion\s+[^\n]+",
-                  "minSdkVersion 23",
-                  src,
-                  count=1,
-              )
-              if n == 0:
-                  src2 = re.sub(
-                      r"(defaultConfig\s*\{)",
-                      r"\1\n        minSdkVersion 23",
-                      src,
-                      count=1,
-                  )
-              dep_line = '    implementation "androidx.work:work-runtime-ktx:2.9.1"\n'
-
-          if "work-runtime-ktx" not in src2:
-              if re.search(r"dependencies\s*\{", src2):
-                  src2 = re.sub(
-                      r"(dependencies\s*\{)",
-                      r"\1\n" + dep_line,
-                      src2,
-                      count=1,
-                  )
+          if "work-runtime-ktx" not in src:
+              if app_build.suffix == ".kts":
+                  dep = '    implementation("androidx.work:work-runtime-ktx:2.9.1")\n'
               else:
-                  src2 += "\ndependencies {\n" + dep_line + "}\n"
-
-          app_build.write_text(src2)
-          print("--- build file after patch ---")
-          print(src2)
+                  dep = '    implementation "androidx.work:work-runtime-ktx:2.9.1"\n'
+              if re.search(r"dependencies\s*\{", src):
+                  src = re.sub(r"(dependencies\s*\{)", r"\1\n" + dep, src, count=1)
+              else:
+                  src += "\ndependencies {\n" + dep + "}\n"
+              app_build.write_text(src)
+              print("Added work-runtime-ktx")
+          else:
+              print("work-runtime-ktx already present")
+          print(app_build.read_text())
           PY
 
           echo "BUILD_DIR=$WORK" >> "$GITHUB_ENV"
-          echo "Scaffolded at $WORK"
 
       - name: Flutter pub get
         working-directory: ${{ env.BUILD_DIR }}
