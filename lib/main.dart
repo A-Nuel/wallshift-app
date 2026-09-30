@@ -5,6 +5,7 @@ import 'screens/onboarding_screen.dart';
 import 'screens/home_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const WallShiftApp());
 }
 

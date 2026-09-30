@@ -1,9 +1,7 @@
 import 'package:flutter/services.dart';
 
-/// Bridge to the native Android side. Everything that actually touches
-/// WallpaperManager, the foreground service, AlarmManager or WorkManager
-/// lives in Kotlin — Flutter can't do any of that reliably in the
-/// background on its own.
+/// Bridge to the native Android side. WallpaperManager, the foreground
+/// service, AlarmManager and WorkManager all live in Kotlin.
 class WallpaperChannel {
   static const _channel = MethodChannel('wallshift/native');
 
@@ -31,9 +29,7 @@ class WallpaperChannel {
     await _channel.invokeMethod('requestIgnoreBatteryOptimization');
   }
 
-  /// Best-effort: opens the MIUI/HyperOS Security app's autostart screen
-  /// if it exists on this device. No-op (returns false) on non-Xiaomi
-  /// devices so callers can hide the step.
+  /// Best-effort: opens MIUI/HyperOS Security autostart screen if present.
   static Future<bool> openAutostartSettings() async {
     final result = await _channel.invokeMethod<bool>('openAutostartSettings');
     return result ?? false;
