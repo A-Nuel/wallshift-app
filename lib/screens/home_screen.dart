@@ -1,7 +1,11 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
+
 import '../theme/app_theme.dart';
 import '../services/prefs_service.dart';
 import '../services/wallpaper_channel.dart';
@@ -45,18 +49,47 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  /// Copy into app documents so paths survive reboots and cache clears.
+  Future<String> _persistImage(XFile file) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final wallDir = Directory(p.join(dir.path, 'wallpapers'));
+    if (!await wallDir.exists()) {
+      await wallDir.create(recursive: true);
+    }
+    final name =
+        '${DateTime.now().millisecondsSinceEpoch}_${p.basename(file.path)}';
+    final dest = p.join(wallDir.path, name);
+    await File(file.path).copy(dest);
+    return dest;
+  }
+
   Future<void> _pickImages() async {
     final picked = await _picker.pickMultiImage(imageQuality: 92);
     if (picked.isEmpty) return;
-    final updated = [..._images, ...picked.map((x) => x.path)];
-    setState(() => _images = updated);
-    await _prefs.setImages(updated);
+    setState(() => _busy = true);
+    try {
+      final persisted = <String>[];
+      for (final x in picked) {
+        persisted.add(await _persistImage(x));
+      }
+      final updated = [..._images, ...persisted];
+      setState(() => _images = updated);
+      await _prefs.setImages(updated);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _removeAt(int index) async {
+    final path = _images[index];
     final updated = [..._images]..removeAt(index);
     setState(() => _images = updated);
     await _prefs.setImages(updated);
+    // Best-effort delete from app storage
+    try {
+      final f = File(path);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   Future<void> _toggleEnabled(bool value) async {
@@ -123,8 +156,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _pickImages,
-        child: const Icon(Icons.add_photo_alternate_rounded),
+        onPressed: _busy ? null : _pickImages,
+        child: _busy
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.black),
+              )
+            : const Icon(Icons.add_photo_alternate_rounded),
       ),
       body: Column(
         children: [
@@ -210,7 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   selectedColor: AppColors.accentDim,
                   backgroundColor: AppColors.surfaceHigh,
                   labelStyle: TextStyle(
-                    color: selected ? AppColors.textPrimary : AppColors.textMuted,
+                    color:
+                        selected ? AppColors.textPrimary : AppColors.textMuted,
                   ),
                   side: BorderSide.none,
                 );
@@ -414,7 +455,15 @@ class _ImageTile extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.file(File(path), fit: BoxFit.cover),
+          child: Image.file(
+            File(path),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(
+              color: AppColors.surfaceHigh,
+              child: const Icon(Icons.broken_image_outlined,
+                  color: AppColors.textMuted),
+            ),
+          ),
         ),
         Positioned(
           top: 4,
@@ -427,7 +476,8 @@ class _ImageTile extends StatelessWidget {
                 color: Colors.black54,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
+              child: const Icon(Icons.close_rounded,
+                  size: 14, color: Colors.white),
             ),
           ),
         ),
