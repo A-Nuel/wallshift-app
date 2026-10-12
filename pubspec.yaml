@@ -1,7 +1,7 @@
 name: wallshift
 description: Automatic wallpaper rotation on screen wake, with a timed fallback.
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.1.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -17,6 +17,7 @@ dependencies:
   reorderable_grid_view: ^2.2.8
   path_provider: ^2.1.4
   path: ^1.9.0
+  image: ^4.2.0
 
 dev_dependencies:
   flutter_test:
