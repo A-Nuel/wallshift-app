@@ -75,6 +75,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }).toList(),
           ),
           const SizedBox(height: 24),
+          Text('Home screen', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          GlassCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Glass widget',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontSize: 16,
+                      ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Long-press your home screen → Widgets → WallShift. '
+                  'Change now and Start/Pause without opening the app.\n\n'
+                  'Long-press the WallShift icon for shortcuts: Change now, Toggle, Packs.',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           Text('Wallpaper look', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 4),
           Text(
@@ -209,7 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 24),
           Text(
-            'WallShift v1.1 — photos stay on device. Packs are generated offline.',
+            'WallShift v1.2 — glass widget + shortcuts. Photos stay on device.',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
         ],
