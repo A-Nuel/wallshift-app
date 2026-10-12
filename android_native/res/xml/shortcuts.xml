@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="change_now"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_menu_rotate"
+        android:shortcutShortLabel="@string/shortcut_change_short"
+        android:shortcutLongLabel="@string/shortcut_change_long">
+        <intent
+            android:action="com.nuel.wallshift.SHORTCUT_CHANGE_NOW"
+            android:targetPackage="com.nuel.wallshift"
+            android:targetClass="com.nuel.wallshift.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="toggle"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_media_pause"
+        android:shortcutShortLabel="@string/shortcut_toggle_short"
+        android:shortcutLongLabel="@string/shortcut_toggle_long">
+        <intent
+            android:action="com.nuel.wallshift.SHORTCUT_TOGGLE"
+            android:targetPackage="com.nuel.wallshift"
+            android:targetClass="com.nuel.wallshift.MainActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="packs"
+        android:enabled="true"
+        android:icon="@android:drawable/ic_menu_gallery"
+        android:shortcutShortLabel="@string/shortcut_packs_short"
+        android:shortcutLongLabel="@string/shortcut_packs_long">
+        <intent
+            android:action="com.nuel.wallshift.SHORTCUT_PACKS"
+            android:targetPackage="com.nuel.wallshift"
+            android:targetClass="com.nuel.wallshift.MainActivity" />
+    </shortcut>
+</shortcuts>

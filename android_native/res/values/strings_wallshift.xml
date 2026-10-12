@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">Glass control for wallpaper rotation</string>
+    <string name="shortcut_change_short">Change now</string>
+    <string name="shortcut_change_long">Change wallpaper now</string>
+    <string name="shortcut_toggle_short">Toggle</string>
+    <string name="shortcut_toggle_long">Start or pause rotation</string>
+    <string name="shortcut_packs_short">Packs</string>
+    <string name="shortcut_packs_long">Open wallpaper packs</string>
+</resources>
