@@ -101,7 +101,6 @@ const packs = <WallpaperPack>[
   ),
 ];
 
-/// Renders quote wallpapers offline (no network) into app storage.
 Future<List<String>> generatePackImages(WallpaperPack pack) async {
   final dir = await getApplicationDocumentsDirectory();
   final outDir = Directory(p.join(dir.path, 'packs', pack.id));
@@ -131,24 +130,32 @@ Future<List<int>> _renderQuotePng({
   required int height,
 }) async {
   final recorder = ui.PictureRecorder();
-  final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()));
+  final canvas = Canvas(
+    recorder,
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+  );
 
   final paint = Paint()
     ..shader = ui.Gradient.linear(
-      Offset(0, 0),
+      const Offset(0, 0),
       Offset(width.toDouble(), height.toDouble()),
       colors,
     );
-  canvas.drawRect(Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()), paint);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    paint,
+  );
 
-  // Soft vignette
   final vignette = Paint()
     ..shader = ui.Gradient.radial(
       Offset(width / 2, height / 2),
       height * 0.7,
-      [Colors.transparent, Colors.black.withValues(alpha: 0.45)],
+      [Colors.transparent, Colors.black.withOpacity(0.45)],
     );
-  canvas.drawRect(Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()), vignette);
+  canvas.drawRect(
+    Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
+    vignette,
+  );
 
   final builder = ui.ParagraphBuilder(
     ui.ParagraphStyle(
