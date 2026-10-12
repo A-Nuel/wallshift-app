@@ -9,6 +9,7 @@ import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 import '../theme/app_theme.dart';
 import '../services/prefs_service.dart';
 import '../services/wallpaper_channel.dart';
+import '../services/image_ops.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,9 +25,9 @@ class _HomeScreenState extends State<HomeScreen> {
   List<String> _images = [];
   bool _enabled = false;
   int _interval = 5;
-  String _target = 'both';
-  bool _shuffle = true;
   bool _busy = false;
+  int _blur = 0;
+  int _dim = 0;
 
   @override
   void initState() {
@@ -38,43 +39,86 @@ class _HomeScreenState extends State<HomeScreen> {
     final images = await _prefs.getImages();
     final enabled = await _prefs.getEnabled();
     final interval = await _prefs.getIntervalMinutes();
-    final target = await _prefs.getTarget();
-    final shuffle = await _prefs.getShuffle();
+    final blur = await _prefs.getBlur();
+    final dim = await _prefs.getDim();
     setState(() {
       _images = images;
       _enabled = enabled;
       _interval = interval;
-      _target = target;
-      _shuffle = shuffle;
+      _blur = blur;
+      _dim = dim;
     });
   }
 
-  /// Copy into app documents so paths survive reboots and cache clears.
-  Future<String> _persistImage(XFile file) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final wallDir = Directory(p.join(dir.path, 'wallpapers'));
-    if (!await wallDir.exists()) {
-      await wallDir.create(recursive: true);
-    }
-    final name =
-        '${DateTime.now().millisecondsSinceEpoch}_${p.basename(file.path)}';
-    final dest = p.join(wallDir.path, name);
-    await File(file.path).copy(dest);
-    return dest;
-  }
-
   Future<void> _pickImages() async {
-    final picked = await _picker.pickMultiImage(imageQuality: 92);
+    final picked = await _picker.pickMultiImage(imageQuality: 95);
     if (picked.isEmpty) return;
     setState(() => _busy = true);
     try {
-      final persisted = <String>[];
+      final aspect = phoneAspect(context);
+      final added = <String>[];
       for (final x in picked) {
-        persisted.add(await _persistImage(x));
+        // Optional crop preview for first-class fit
+        final shouldCrop = await showDialog<bool>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                backgroundColor: AppColors.surface,
+                title: const Text('Fit this photo?'),
+                content: const Text(
+                  'Crop to your phone aspect so it does not stretch. '
+                  'You can skip to keep the full image center-cropped automatically.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: const Text('Auto-fit'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('Preview crop'),
+                  ),
+                ],
+              ),
+            ) ??
+            false;
+
+        String out;
+        if (shouldCrop) {
+          final result = await Navigator.of(context).push<CropResult>(
+            MaterialPageRoute(
+              builder: (_) => CropScreen(
+                sourcePath: x.path,
+                aspect: aspect,
+              ),
+            ),
+          );
+          if (result == null) continue;
+          out = result.path;
+        } else {
+          out = await processWallpaperImage(
+            sourcePath: x.path,
+            aspect: aspect,
+            blurRadius: _blur,
+            dimPercent: _dim,
+          );
+        }
+        // Re-apply blur/dim if user cropped (crop path skips effects)
+        if (shouldCrop && (_blur > 0 || _dim > 0)) {
+          out = await processWallpaperImage(
+            sourcePath: out,
+            aspect: aspect,
+            blurRadius: _blur,
+            dimPercent: _dim,
+          );
+        }
+        added.add(out);
       }
-      final updated = [..._images, ...persisted];
+      if (added.isEmpty) return;
+      final updated = [..._images, ...added];
       setState(() => _images = updated);
       await _prefs.setImages(updated);
+    } catch (e) {
+      _showSnack('Could not add images: $e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -85,10 +129,9 @@ class _HomeScreenState extends State<HomeScreen> {
     final updated = [..._images]..removeAt(index);
     setState(() => _images = updated);
     await _prefs.setImages(updated);
-    // Best-effort delete from app storage
     try {
       final f = File(path);
-      if (await f.exists()) await f.delete();
+      if (await f.exists() && path.contains('wallpapers')) await f.delete();
     } catch (_) {}
   }
 
@@ -109,14 +152,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _setInterval(int minutes) async {
     setState(() => _interval = minutes);
     await _prefs.setIntervalMinutes(minutes);
-    if (_enabled) {
-      await WallpaperChannel.startRotation(minutes);
-    }
-  }
-
-  Future<void> _setTarget(String value) async {
-    setState(() => _target = value);
-    await _prefs.setTarget(value);
+    if (_enabled) await WallpaperChannel.startRotation(minutes);
   }
 
   Future<void> _changeNow() async {
@@ -149,32 +185,82 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('WallShift'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.tune_rounded),
-            onPressed: () => _openSettingsSheet(context),
-          ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
         ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _busy ? null : _pickImages,
-        child: _busy
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.black),
-              )
-            : const Icon(Icons.add_photo_alternate_rounded),
+        child: const Icon(Icons.add_photo_alternate_rounded),
       ),
       body: Column(
         children: [
-          _ControlCard(
-            enabled: _enabled,
-            interval: _interval,
-            busy: _busy,
-            onToggle: _toggleEnabled,
-            onChangeNow: _changeNow,
-            onIntervalTap: () => _openIntervalSheet(context),
+          GlassCard(
+            margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Auto-rotate',
+                              style: Theme.of(context).textTheme.titleLarge),
+                          const SizedBox(height: 2),
+                          Text(
+                            _enabled
+                                ? 'On screen wake + timed backup'
+                                : 'Currently off',
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(value: _enabled, onChanged: _toggleEnabled),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () => _openIntervalSheet(context),
+                        icon: const Icon(Icons.timer_outlined, size: 18),
+                        label: Text(_interval < 60
+                            ? 'Every $_interval min'
+                            : 'Every ${_interval ~/ 60} hr'),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _busy ? null : _changeNow,
+                        child: const Text('Change now'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+            child: Row(
+              children: [
+                Text(
+                  '${_images.length} in rotation',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: _images.isEmpty
@@ -229,8 +315,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Text('Change every', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 4),
             Text(
-              'Screen-wake changes happen instantly regardless of this. '
-              'This sets the timed backup interval.',
+              'Screen-wake is instant. This is the timed backup interval.',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -262,185 +347,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  void _openSettingsSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppColors.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Apply to', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              _TargetOption(
-                label: 'Home screen only',
-                value: 'home',
-                groupValue: _target,
-                onChanged: (v) {
-                  _setTarget(v);
-                  setSheetState(() {});
-                },
-              ),
-              _TargetOption(
-                label: 'Lock screen only',
-                value: 'lock',
-                groupValue: _target,
-                onChanged: (v) {
-                  _setTarget(v);
-                  setSheetState(() {});
-                },
-              ),
-              _TargetOption(
-                label: 'Both',
-                value: 'both',
-                groupValue: _target,
-                onChanged: (v) {
-                  _setTarget(v);
-                  setSheetState(() {});
-                },
-              ),
-              const Divider(height: 28),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Shuffle order'),
-                subtitle: Text('Off plays images in the order shown',
-                    style: Theme.of(context).textTheme.bodyMedium),
-                value: _shuffle,
-                onChanged: (v) async {
-                  setState(() => _shuffle = v);
-                  setSheetState(() {});
-                  await _prefs.setShuffle(v);
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TargetOption extends StatelessWidget {
-  final String label;
-  final String value;
-  final String groupValue;
-  final ValueChanged<String> onChanged;
-  const _TargetOption({
-    required this.label,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final selected = value == groupValue;
-    return InkWell(
-      onTap: () => onChanged(value),
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
-          children: [
-            Icon(
-              selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? AppColors.accent : AppColors.textMuted,
-              size: 20,
-            ),
-            const SizedBox(width: 12),
-            Text(label),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ControlCard extends StatelessWidget {
-  final bool enabled;
-  final int interval;
-  final bool busy;
-  final ValueChanged<bool> onToggle;
-  final VoidCallback onChangeNow;
-  final VoidCallback onIntervalTap;
-  const _ControlCard({
-    required this.enabled,
-    required this.interval,
-    required this.busy,
-    required this.onToggle,
-    required this.onChangeNow,
-    required this.onIntervalTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Auto-rotate',
-                        style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 2),
-                    Text(
-                      enabled ? 'Changes on every screen wake' : 'Currently off',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
-                ),
-              ),
-              Switch(value: enabled, onChanged: onToggle),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: onIntervalTap,
-                  icon: const Icon(Icons.timer_outlined, size: 18),
-                  label: Text(interval < 60
-                      ? 'Every $interval min'
-                      : 'Every ${interval ~/ 60} hr'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: busy ? null : onChangeNow,
-                  child: busy
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.black),
-                        )
-                      : const Text('Change now'),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _ImageTile extends StatelessWidget {
@@ -460,8 +366,7 @@ class _ImageTile extends StatelessWidget {
             fit: BoxFit.cover,
             errorBuilder: (_, __, ___) => Container(
               color: AppColors.surfaceHigh,
-              child: const Icon(Icons.broken_image_outlined,
-                  color: AppColors.textMuted),
+              child: const Icon(Icons.broken_image_outlined),
             ),
           ),
         ),
@@ -498,13 +403,13 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.photo_library_outlined,
+            Icon(Icons.photo_library_outlined,
                 size: 40, color: AppColors.textMuted),
             const SizedBox(height: 14),
             Text('No images yet', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 6),
             Text(
-              'Add a few and WallShift will cycle through them.',
+              'Add photos or open Packs for offline quote sets.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
             ),
