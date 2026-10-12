@@ -28,7 +28,7 @@ class _ShellScreenState extends State<ShellScreen> {
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         backgroundColor: AppColors.surface,
-        indicatorColor: AppColors.accentDim.withValues(alpha: 0.4),
+        indicatorColor: AppColors.accentDim.withOpacity(0.4),
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.wallpaper_outlined),
