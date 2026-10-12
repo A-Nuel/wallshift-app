@@ -135,11 +135,20 @@ Future<List<int>> _renderQuotePng({
     Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
   );
 
+  // ui.Gradient requires length >= 2; with 3+ colors must pass colorStops
+  final stops = colors.length == 2
+      ? null
+      : List<double>.generate(
+          colors.length,
+          (i) => i / (colors.length - 1),
+        );
+
   final paint = Paint()
     ..shader = ui.Gradient.linear(
       const Offset(0, 0),
       Offset(width.toDouble(), height.toDouble()),
       colors,
+      stops,
     );
   canvas.drawRect(
     Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),
@@ -151,6 +160,7 @@ Future<List<int>> _renderQuotePng({
       Offset(width / 2, height / 2),
       height * 0.7,
       [Colors.transparent, Colors.black.withOpacity(0.45)],
+      [0.45, 1.0],
     );
   canvas.drawRect(
     Rect.fromLTWH(0, 0, width.toDouble(), height.toDouble()),

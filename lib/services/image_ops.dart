@@ -1,6 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
@@ -12,7 +10,7 @@ import 'package:path_provider/path_provider.dart';
 Future<String> processWallpaperImage({
   required String sourcePath,
   required double aspect,
-  Rect? normalizedCrop, // 0-1 rect; if null, center-crop to aspect
+  Rect? normalizedCrop,
   int blurRadius = 0,
   int dimPercent = 0,
 }) async {
@@ -48,7 +46,6 @@ Future<String> processWallpaperImage({
 
   var cropped = img.copyCrop(decoded, x: left, y: top, width: cw, height: ch);
 
-  // Target ~1080 on short side for storage
   final maxSide = 1920;
   if (cropped.width > maxSide || cropped.height > maxSide) {
     if (cropped.width > cropped.height) {
@@ -77,118 +74,208 @@ Future<String> processWallpaperImage({
   if (!await wallDir.exists()) await wallDir.create(recursive: true);
   final out = p.join(
     wallDir.path,
-    '${DateTime.now().millisecondsSinceEpoch}.jpg',
+    '${DateTime.now().millisecondsSinceEpoch}_${p.basenameWithoutExtension(sourcePath)}.jpg',
   );
   await File(out).writeAsBytes(img.encodeJpg(cropped, quality: 90));
   return out;
 }
 
-/// Device-ish portrait aspect for phones.
 double phoneAspect(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
   return size.width / size.height;
 }
 
-/// Interactive crop screen result.
 class CropResult {
   final String path;
   CropResult(this.path);
 }
 
-class CropScreen extends StatefulWidget {
-  final String sourcePath;
+/// Swipe through every selected photo, then apply auto-fit to all in one go.
+class BatchCropScreen extends StatefulWidget {
+  final List<String> sourcePaths;
   final double aspect;
+  final int blurRadius;
+  final int dimPercent;
 
-  const CropScreen({
+  const BatchCropScreen({
     super.key,
-    required this.sourcePath,
+    required this.sourcePaths,
     required this.aspect,
+    this.blurRadius = 0,
+    this.dimPercent = 0,
   });
 
   @override
-  State<CropScreen> createState() => _CropScreenState();
+  State<BatchCropScreen> createState() => _BatchCropScreenState();
 }
 
-class _CropScreenState extends State<CropScreen> {
-  final _controller = TransformationController();
+class _BatchCropScreenState extends State<BatchCropScreen> {
+  late final PageController _page;
+  int _index = 0;
   bool _busy = false;
+  final Set<int> _skipped = {};
 
-  Future<void> _apply() async {
+  @override
+  void initState() {
+    super.initState();
+    _page = PageController();
+  }
+
+  @override
+  void dispose() {
+    _page.dispose();
+    super.dispose();
+  }
+
+  Future<void> _finish() async {
     setState(() => _busy = true);
     try {
-      // Center-crop to aspect from the full image (simple reliable path).
-      // Full free-form matrix crop is complex; aspect-fit center is what
-      // most wallpaper apps default to and matches "fit my phone".
-      final out = await processWallpaperImage(
-        sourcePath: widget.sourcePath,
-        aspect: widget.aspect,
-      );
+      final out = <String>[];
+      for (var i = 0; i < widget.sourcePaths.length; i++) {
+        if (_skipped.contains(i)) continue;
+        final path = await processWallpaperImage(
+          sourcePath: widget.sourcePaths[i],
+          aspect: widget.aspect,
+          blurRadius: widget.blurRadius,
+          dimPercent: widget.dimPercent,
+        );
+        out.add(path);
+      }
       if (!mounted) return;
-      Navigator.pop(context, CropResult(out));
+      Navigator.pop(context, out);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Crop failed: $e')),
+        SnackBar(content: Text('Failed: $e')),
       );
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      setState(() => _busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final total = widget.sourcePaths.length;
+    final keepCount = total - _skipped.length;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
-        title: const Text('Fit to screen'),
+        title: Text('Review  ${_index + 1} / $total'),
         actions: [
           TextButton(
-            onPressed: _busy ? null : _apply,
+            onPressed: _busy || keepCount == 0 ? null : _finish,
             child: _busy
                 ? const SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Use'),
+                : Text('Add $keepCount'),
           ),
         ],
       ),
       body: Column(
         children: [
           Expanded(
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: widget.aspect,
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white54, width: 2),
-                  ),
-                  child: ClipRect(
-                    child: InteractiveViewer(
-                      transformationController: _controller,
-                      minScale: 1,
-                      maxScale: 4,
-                      child: Image.file(
-                        File(widget.sourcePath),
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
+            child: PageView.builder(
+              controller: _page,
+              itemCount: total,
+              onPageChanged: (i) => setState(() => _index = i),
+              itemBuilder: (context, i) {
+                final skipped = _skipped.contains(i);
+                return Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Center(
+                      child: AspectRatio(
+                        aspectRatio: widget.aspect,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: skipped
+                                  ? Colors.redAccent.withOpacity(0.6)
+                                  : Colors.white38,
+                              width: 2,
+                            ),
+                          ),
+                          child: Image.file(
+                            File(widget.sourcePaths[i]),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (skipped)
+                      Container(
+                        color: Colors.black54,
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'Skipped',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Swipe through all photos. Auto-fit crops to your phone screen. '
+              'Skip any you don’t want, then tap Add.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.withOpacity(0.7), height: 1.35),
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      onPressed: _busy
+                          ? null
+                          : () {
+                              setState(() {
+                                if (_skipped.contains(_index)) {
+                                  _skipped.remove(_index);
+                                } else {
+                                  _skipped.add(_index);
+                                }
+                              });
+                            },
+                      child: Text(
+                        _skipped.contains(_index) ? 'Unskip' : 'Skip',
                       ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B4A),
+                        foregroundColor: Colors.black,
+                      ),
+                      onPressed: _busy || keepCount == 0 ? null : _finish,
+                      child: Text('Add $keepCount'),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              'Preview uses your phone aspect ratio. '
-              'Pinch to zoom — Use saves a center-fit crop.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white70),
             ),
           ),
         ],

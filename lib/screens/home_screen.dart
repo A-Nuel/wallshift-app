@@ -2,8 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:reorderable_grid_view/reorderable_grid_view.dart';
 
 import '../theme/app_theme.dart';
@@ -53,75 +51,28 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickImages() async {
     final picked = await _picker.pickMultiImage(imageQuality: 95);
     if (picked.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      final aspect = phoneAspect(context);
-      final added = <String>[];
-      for (final x in picked) {
-        // Optional crop preview for first-class fit
-        final shouldCrop = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: AppColors.surface,
-                title: const Text('Fit this photo?'),
-                content: const Text(
-                  'Crop to your phone aspect so it does not stretch. '
-                  'You can skip to keep the full image center-cropped automatically.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Auto-fit'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Preview crop'),
-                  ),
-                ],
-              ),
-            ) ??
-            false;
 
-        String out;
-        if (shouldCrop) {
-          final result = await Navigator.of(context).push<CropResult>(
-            MaterialPageRoute(
-              builder: (_) => CropScreen(
-                sourcePath: x.path,
-                aspect: aspect,
-              ),
-            ),
-          );
-          if (result == null) continue;
-          out = result.path;
-        } else {
-          out = await processWallpaperImage(
-            sourcePath: x.path,
-            aspect: aspect,
-            blurRadius: _blur,
-            dimPercent: _dim,
-          );
-        }
-        // Re-apply blur/dim if user cropped (crop path skips effects)
-        if (shouldCrop && (_blur > 0 || _dim > 0)) {
-          out = await processWallpaperImage(
-            sourcePath: out,
-            aspect: aspect,
-            blurRadius: _blur,
-            dimPercent: _dim,
-          );
-        }
-        added.add(out);
-      }
-      if (added.isEmpty) return;
-      final updated = [..._images, ...added];
-      setState(() => _images = updated);
-      await _prefs.setImages(updated);
-    } catch (e) {
-      _showSnack('Could not add images: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final paths = picked.map((x) => x.path).toList();
+    final aspect = phoneAspect(context);
+
+    // One screen: swipe through all, then Add once — no per-image dialogs
+    final result = await Navigator.of(context).push<List<String>>(
+      MaterialPageRoute(
+        builder: (_) => BatchCropScreen(
+          sourcePaths: paths,
+          aspect: aspect,
+          blurRadius: _blur,
+          dimPercent: _dim,
+        ),
+      ),
+    );
+
+    if (result == null || result.isEmpty) return;
+
+    final updated = [..._images, ...result];
+    setState(() => _images = updated);
+    await _prefs.setImages(updated);
+    _showSnack('Added ${result.length} image${result.length == 1 ? '' : 's'}');
   }
 
   Future<void> _removeAt(int index) async {

@@ -45,11 +45,10 @@ jobs:
 
           export WORK
           python3 <<'PY'
-          import os, pathlib, re, sys, struct, zlib
+          import os, pathlib, re, sys, struct, zlib, math
 
           root = pathlib.Path(os.environ["WORK"])
 
-          # Manifest merge
           manifest = root / "android/app/src/main/AndroidManifest.xml"
           additions = pathlib.Path("android_native/AndroidManifest_ADDITIONS.xml").read_text()
           perms = re.findall(r"<uses-permission[^/]*/>", additions)
@@ -65,7 +64,6 @@ jobs:
           manifest.write_text(text)
           print("Manifest merged: +%d perms, +%d components" % (len(perms), len(blocks)))
 
-          # WorkManager dependency
           groovy = root / "android/app/build.gradle"
           kts = root / "android/app/build.gradle.kts"
           app_build = groovy if groovy.exists() else kts
@@ -82,11 +80,10 @@ jobs:
               app_build.write_text(src)
               print("Added work-runtime-ktx")
 
-          # Generate simple adaptive-style PNG launcher icons (ember accent)
           def write_png(path, size, rgba_fn):
               raw = bytearray()
               for y in range(size):
-                  raw.append(0)  # filter
+                  raw.append(0)
                   for x in range(size):
                       r, g, b, a = rgba_fn(x, y, size)
                       raw.extend([r, g, b, a])
@@ -96,17 +93,66 @@ jobs:
               png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(bytes(raw), 9)) + chunk(b'IEND', b'')
               path.write_bytes(png)
 
+          def dist(x, y, cx, cy):
+              return math.hypot(x - cx, y - cy)
+
+          def in_rounded_rect(x, y, left, top, right, bottom, radius):
+              if left + radius <= x <= right - radius and top <= y <= bottom:
+                  return True
+              if left <= x <= right and top + radius <= y <= bottom - radius:
+                  return True
+              corners = [
+                  (left + radius, top + radius),
+                  (right - radius, top + radius),
+                  (left + radius, bottom - radius),
+                  (right - radius, bottom - radius),
+              ]
+              for cx, cy in corners:
+                  if dist(x, y, cx, cy) <= radius:
+                      return True
+              return False
+
           def icon_pixel(x, y, size):
-              # dark bg + orange rounded square
-              cx, cy = size / 2, size / 2
-              dx, dy = abs(x - cx), abs(y - cy)
-              # outer circle-ish
-              if (dx * dx + dy * dy) > (size * 0.42) ** 2:
-                  return (18, 16, 20, 255)
-              # inner accent tile
-              if dx < size * 0.22 and dy < size * 0.22:
-                  return (255, 107, 74, 255)
-              return (36, 32, 40, 255)
+              """WallShift logo: dark circle + stacked shifting panels (wallpaper metaphor)."""
+              s = float(size)
+              cx, cy = s / 2, s / 2
+              r_outer = s * 0.48
+              # transparent outside circle for adaptive feel on some launchers
+              if dist(x, y, cx, cy) > r_outer:
+                  return (0, 0, 0, 0)
+
+              # base fill
+              bg = (22, 18, 24, 255)
+              # soft radial dark
+              t = dist(x, y, cx, cy) / r_outer
+              base_r = int(22 + 8 * t)
+              base_g = int(18 + 6 * t)
+              base_b = int(24 + 10 * t)
+              color = (base_r, base_g, base_b, 255)
+
+              # three stacked "wallpaper" cards, slightly offset = shift
+              # card 1 (back) - muted
+              c1_l, c1_t = s * 0.28, s * 0.22
+              c1_r, c1_b = s * 0.62, s * 0.70
+              # card 2 (mid) - orange
+              c2_l, c2_t = s * 0.34, s * 0.28
+              c2_r, c2_b = s * 0.68, s * 0.76
+              # card 3 (front) - bright accent
+              c3_l, c3_t = s * 0.40, s * 0.34
+              c3_r, c3_b = s * 0.74, s * 0.82
+              rad = s * 0.06
+
+              if in_rounded_rect(x, y, c1_l, c1_t, c1_r, c1_b, rad):
+                  color = (70, 55, 62, 255)
+              if in_rounded_rect(x, y, c2_l, c2_t, c2_r, c2_b, rad):
+                  color = (230, 95, 70, 255)
+              if in_rounded_rect(x, y, c3_l, c3_t, c3_r, c3_b, rad):
+                  color = (255, 130, 95, 255)
+                  # subtle highlight stripe on front card
+                  if c3_t + s * 0.08 < y < c3_t + s * 0.14 and c3_l + s * 0.06 < x < c3_r - s * 0.06:
+                      color = (255, 180, 150, 255)
+
+              return color
 
           res = root / "android/app/src/main/res"
           for folder, sz in [("mipmap-mdpi", 48), ("mipmap-hdpi", 72), ("mipmap-xhdpi", 96), ("mipmap-xxhdpi", 144), ("mipmap-xxxhdpi", 192)]:
@@ -114,7 +160,7 @@ jobs:
               d.mkdir(parents=True, exist_ok=True)
               write_png(d / "ic_launcher.png", sz, icon_pixel)
               write_png(d / "ic_launcher_round.png", sz, icon_pixel)
-          print("Generated launcher icons")
+          print("Generated WallShift logo icons")
           PY
 
           echo "BUILD_DIR=$WORK" >> "$GITHUB_ENV"
