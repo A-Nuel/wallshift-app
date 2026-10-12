@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -151,7 +153,7 @@ class AppThemes {
             ),
           ),
       appBarTheme: AppBarTheme(
-        backgroundColor: p.bg,
+        backgroundColor: p.glass ? Colors.transparent : p.bg,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: headingFont.copyWith(
@@ -215,7 +217,6 @@ class AppThemes {
   }
 }
 
-/// Convenience accessors for the active palette (set from MaterialApp).
 class AppColors {
   static ThemePalette current = AppThemes.ember;
 
@@ -248,17 +249,41 @@ class GlassCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = AppColors.current;
-    return Container(
-      margin: margin,
+    final body = Container(
       padding: padding ?? const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: p.surface,
         borderRadius: BorderRadius.circular(radius),
-        border: p.glass
-            ? Border.all(color: p.divider, width: 1)
+        border: Border.all(
+          color: p.glass ? p.divider : p.divider.withOpacity(0.4),
+          width: 1,
+        ),
+        boxShadow: p.glass
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ]
             : null,
       ),
       child: child,
+    );
+
+    if (!p.glass) {
+      return Container(margin: margin, child: body);
+    }
+
+    return Container(
+      margin: margin,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: body,
+        ),
+      ),
     );
   }
 }

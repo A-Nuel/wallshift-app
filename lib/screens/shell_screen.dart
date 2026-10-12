@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import 'home_screen.dart';
 import 'packs_screen.dart';
@@ -13,12 +14,28 @@ class ShellScreen extends StatefulWidget {
 
 class _ShellScreenState extends State<ShellScreen> {
   int _index = 0;
+  static const _channel = MethodChannel('wallshift/native');
 
   final _pages = const [
     HomeScreen(),
     PacksScreen(),
     SettingsScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'openRoute') {
+        final route = call.arguments?.toString();
+        if (route == 'packs' && mounted) {
+          setState(() => _index = 1);
+        } else if (route == 'settings' && mounted) {
+          setState(() => _index = 2);
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

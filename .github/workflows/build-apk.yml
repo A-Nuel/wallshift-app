@@ -43,6 +43,14 @@ jobs:
           find "$WORK/android/app/src/main/kotlin" -name 'MainActivity.kt' -delete || true
           cp android_native/kotlin/com/nuel/wallshift/*.kt "$KOTLIN_DIR/"
 
+          # Overlay widget layouts, drawables, xml, strings
+          RES_SRC="android_native/res"
+          RES_DST="$WORK/android/app/src/main/res"
+          if [ -d "$RES_SRC" ]; then
+            cp -a "$RES_SRC/." "$RES_DST/"
+            echo "Copied android_native/res"
+          fi
+
           export WORK
           python3 <<'PY'
           import os, pathlib, re, sys, struct, zlib, math
@@ -61,6 +69,21 @@ jobs:
               sys.exit("No <application> in manifest")
           text = text.replace("<application", "\n".join(perms) + "\n    <application", 1)
           text = text.replace("</application>", "\n".join(blocks) + "\n    </application>", 1)
+
+          # Add shortcuts meta-data inside MainActivity if missing
+          if "android.app.shortcuts" not in text:
+              shortcut_meta = '''
+                <meta-data
+                    android:name="android.app.shortcuts"
+                    android:resource="@xml/shortcuts" />
+            '''
+              # Insert before closing of activity that has MAIN launcher
+              text = re.sub(
+                  r"(android.intent.action.MAIN[\s\S]*?</intent-filter>)",
+                  r"\1" + shortcut_meta,
+                  text,
+                  count=1,
+              )
           manifest.write_text(text)
           print("Manifest merged: +%d perms, +%d components" % (len(perms), len(blocks)))
 
@@ -113,45 +136,25 @@ jobs:
               return False
 
           def icon_pixel(x, y, size):
-              """WallShift logo: dark circle + stacked shifting panels (wallpaper metaphor)."""
               s = float(size)
               cx, cy = s / 2, s / 2
               r_outer = s * 0.48
-              # transparent outside circle for adaptive feel on some launchers
               if dist(x, y, cx, cy) > r_outer:
                   return (0, 0, 0, 0)
-
-              # base fill
-              bg = (22, 18, 24, 255)
-              # soft radial dark
               t = dist(x, y, cx, cy) / r_outer
-              base_r = int(22 + 8 * t)
-              base_g = int(18 + 6 * t)
-              base_b = int(24 + 10 * t)
-              color = (base_r, base_g, base_b, 255)
-
-              # three stacked "wallpaper" cards, slightly offset = shift
-              # card 1 (back) - muted
-              c1_l, c1_t = s * 0.28, s * 0.22
-              c1_r, c1_b = s * 0.62, s * 0.70
-              # card 2 (mid) - orange
-              c2_l, c2_t = s * 0.34, s * 0.28
-              c2_r, c2_b = s * 0.68, s * 0.76
-              # card 3 (front) - bright accent
-              c3_l, c3_t = s * 0.40, s * 0.34
-              c3_r, c3_b = s * 0.74, s * 0.82
+              color = (int(22 + 8 * t), int(18 + 6 * t), int(24 + 10 * t), 255)
+              c1_l, c1_t, c1_r, c1_b = s * 0.28, s * 0.22, s * 0.62, s * 0.70
+              c2_l, c2_t, c2_r, c2_b = s * 0.34, s * 0.28, s * 0.68, s * 0.76
+              c3_l, c3_t, c3_r, c3_b = s * 0.40, s * 0.34, s * 0.74, s * 0.82
               rad = s * 0.06
-
               if in_rounded_rect(x, y, c1_l, c1_t, c1_r, c1_b, rad):
                   color = (70, 55, 62, 255)
               if in_rounded_rect(x, y, c2_l, c2_t, c2_r, c2_b, rad):
                   color = (230, 95, 70, 255)
               if in_rounded_rect(x, y, c3_l, c3_t, c3_r, c3_b, rad):
                   color = (255, 130, 95, 255)
-                  # subtle highlight stripe on front card
                   if c3_t + s * 0.08 < y < c3_t + s * 0.14 and c3_l + s * 0.06 < x < c3_r - s * 0.06:
                       color = (255, 180, 150, 255)
-
               return color
 
           res = root / "android/app/src/main/res"
