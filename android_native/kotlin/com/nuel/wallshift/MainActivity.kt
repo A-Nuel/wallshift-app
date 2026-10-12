@@ -1,12 +1,18 @@
 package com.nuel.wallshift
 
 import android.app.AlarmManager
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.core.app.NotificationCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -70,17 +76,71 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(null)
                     }
+                    "setLauncherIconVisible" -> {
+                        val visible = call.argument<Boolean>("visible") ?: true
+                        setLauncherIconVisible(visible)
+                        result.success(null)
+                    }
+                    "showKeepAliveNotification" -> {
+                        showReopenNotification()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
     }
 
-    /**
-     * MIUI/HyperOS hides the autostart toggle in the Security app, not in
-     * standard Android settings. There's no public API for it, so this
-     * tries the known component names and quietly fails on non-Xiaomi
-     * devices (or if the OEM changes the component in a future build).
-     */
+    private fun setLauncherIconVisible(visible: Boolean) {
+        val pm = packageManager
+        val component = ComponentName(this, MainActivity::class.java)
+        val state = if (visible) {
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+        pm.setComponentEnabledSetting(
+            component,
+            state,
+            PackageManager.DONT_KILL_APP
+        )
+    }
+
+    private fun showReopenNotification() {
+        val channelId = "wallshift_reopen"
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    channelId,
+                    "Open WallShift",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Tap to open WallShift when the icon is hidden"
+                }
+            )
+        }
+        val open = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+        // When launcher component is disabled, explicit activity still works
+        val explicit = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0, explicit,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notif = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("WallShift")
+            .setContentText("Tap to open · icon is hidden")
+            .setSmallIcon(android.R.drawable.ic_menu_gallery)
+            .setOngoing(true)
+            .setContentIntent(pi)
+            .build()
+        nm.notify(4202, notif)
+    }
+
     private fun openAutostartIfAvailable(): Boolean {
         val manufacturer = Build.MANUFACTURER.lowercase()
         if (!manufacturer.contains("xiaomi") && !manufacturer.contains("redmi") &&
@@ -101,11 +161,11 @@ class MainActivity : FlutterActivity() {
         for ((pkg, cls) in candidates) {
             try {
                 val intent = Intent().apply {
-                    component = android.content.ComponentName(pkg, cls)
+                    component = ComponentName(pkg, cls)
                 }
                 startActivity(intent)
                 return true
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 continue
             }
         }

@@ -12,16 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
-/**
- * Foreground service whose only job is to keep a live BroadcastReceiver
- * for ACTION_SCREEN_ON registered. This can't be done via the manifest —
- * Android has ignored implicit SCREEN_ON/OFF manifest registrations since
- * API 26 — so it has to be a runtime registration tied to a running
- * component, which means a foreground service with a visible notification.
- *
- * AlarmScheduler is armed here too, so the timed backup starts the moment
- * rotation is turned on, independent of screen events.
- */
 class RotationService : Service() {
 
     private var screenReceiver: BroadcastReceiver? = null
@@ -33,7 +23,9 @@ class RotationService : Service() {
         screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 if (intent.action == Intent.ACTION_SCREEN_ON) {
-                    WallpaperEngine.applyNext(context)
+                    if (WallpaperEngine.isUnlockTriggerEnabled(context)) {
+                        WallpaperEngine.applyNext(context)
+                    }
                 }
             }
         }
@@ -43,9 +35,6 @@ class RotationService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val intervalMinutes = intent?.getIntExtra(EXTRA_INTERVAL_MINUTES, 5) ?: 5
         AlarmScheduler.arm(applicationContext, intervalMinutes)
-        // START_STICKY: ask the system to recreate the service if it's
-        // killed under memory pressure. WorkManager's watchdog tick is the
-        // real backstop if this never comes back.
         return START_STICKY
     }
 
@@ -71,7 +60,9 @@ class RotationService : Service() {
             manager.createNotificationChannel(channel)
         }
 
-        val openApp = packageManager.getLaunchIntentForPackage(packageName)
+        val openApp = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
         val contentIntent = PendingIntent.getActivity(
             this, 0, openApp,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
