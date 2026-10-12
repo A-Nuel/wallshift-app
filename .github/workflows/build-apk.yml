@@ -45,7 +45,7 @@ jobs:
 
           export WORK
           python3 <<'PY'
-          import os, pathlib, re, sys
+          import os, pathlib, re, sys, struct, zlib
 
           root = pathlib.Path(os.environ["WORK"])
 
@@ -65,7 +65,7 @@ jobs:
           manifest.write_text(text)
           print("Manifest merged: +%d perms, +%d components" % (len(perms), len(blocks)))
 
-          # Add WorkManager only (do not touch minSdk / flutter {} block)
+          # WorkManager dependency
           groovy = root / "android/app/build.gradle"
           kts = root / "android/app/build.gradle.kts"
           app_build = groovy if groovy.exists() else kts
@@ -81,9 +81,40 @@ jobs:
                   src += "\ndependencies {\n" + dep + "}\n"
               app_build.write_text(src)
               print("Added work-runtime-ktx")
-          else:
-              print("work-runtime-ktx already present")
-          print(app_build.read_text())
+
+          # Generate simple adaptive-style PNG launcher icons (ember accent)
+          def write_png(path, size, rgba_fn):
+              raw = bytearray()
+              for y in range(size):
+                  raw.append(0)  # filter
+                  for x in range(size):
+                      r, g, b, a = rgba_fn(x, y, size)
+                      raw.extend([r, g, b, a])
+              def chunk(tag, data):
+                  return struct.pack('>I', len(data)) + tag + data + struct.pack('>I', zlib.crc32(tag + data) & 0xffffffff)
+              ihdr = struct.pack('>IIBBBBB', size, size, 8, 6, 0, 0, 0)
+              png = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(bytes(raw), 9)) + chunk(b'IEND', b'')
+              path.write_bytes(png)
+
+          def icon_pixel(x, y, size):
+              # dark bg + orange rounded square
+              cx, cy = size / 2, size / 2
+              dx, dy = abs(x - cx), abs(y - cy)
+              # outer circle-ish
+              if (dx * dx + dy * dy) > (size * 0.42) ** 2:
+                  return (18, 16, 20, 255)
+              # inner accent tile
+              if dx < size * 0.22 and dy < size * 0.22:
+                  return (255, 107, 74, 255)
+              return (36, 32, 40, 255)
+
+          res = root / "android/app/src/main/res"
+          for folder, sz in [("mipmap-mdpi", 48), ("mipmap-hdpi", 72), ("mipmap-xhdpi", 96), ("mipmap-xxhdpi", 144), ("mipmap-xxxhdpi", 192)]:
+              d = res / folder
+              d.mkdir(parents=True, exist_ok=True)
+              write_png(d / "ic_launcher.png", sz, icon_pixel)
+              write_png(d / "ic_launcher_round.png", sz, icon_pixel)
+          print("Generated launcher icons")
           PY
 
           echo "BUILD_DIR=$WORK" >> "$GITHUB_ENV"

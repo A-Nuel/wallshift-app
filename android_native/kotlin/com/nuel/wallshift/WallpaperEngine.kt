@@ -9,10 +9,6 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.net.Uri
-import android.renderscript.Allocation
-import android.renderscript.Element
-import android.renderscript.RenderScript
-import android.renderscript.ScriptIntrinsicBlur
 import android.util.Log
 import org.json.JSONArray
 import java.io.ByteArrayInputStream
@@ -27,7 +23,6 @@ object WallpaperEngine {
     private const val KEY_TARGET = "flutter.wallshift_target"
     private const val KEY_SHUFFLE = "flutter.wallshift_shuffle"
     private const val KEY_ENABLED = "flutter.wallshift_enabled"
-    private const val KEY_BLUR = "flutter.wallshift_blur"
     private const val KEY_DIM = "flutter.wallshift_dim"
     private const val KEY_TRIGGER_UNLOCK = "flutter.wallshift_trigger_unlock"
 
@@ -38,7 +33,6 @@ object WallpaperEngine {
 
     fun isUnlockTriggerEnabled(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
-        // Default true if key missing
         return if (prefs.contains(KEY_TRIGGER_UNLOCK)) {
             prefs.getBoolean(KEY_TRIGGER_UNLOCK, true)
         } else true
@@ -65,13 +59,11 @@ object WallpaperEngine {
         }
 
         val path = images[nextIndex]
-        val blur = prefs.getInt(KEY_BLUR, 0)
         val dim = prefs.getInt(KEY_DIM, 0)
         val success = setWallpaperFromPath(
             context,
             path,
             prefs.getString(KEY_TARGET, "both")!!,
-            blur,
             dim
         )
         if (success) {
@@ -89,7 +81,6 @@ object WallpaperEngine {
         context: Context,
         path: String,
         target: String,
-        blur: Int,
         dim: Int
     ): Boolean {
         return try {
@@ -106,19 +97,13 @@ object WallpaperEngine {
                 java.io.FileInputStream(path)
             } ?: return false
 
-            if (blur <= 0 && dim <= 0) {
+            if (dim <= 0) {
                 stream.use { wm.setStream(it, null, true, flags) }
                 return true
             }
 
             val original = stream.use { BitmapFactory.decodeStream(it) } ?: return false
-            var bmp = original
-            if (blur > 0) {
-                bmp = softBlur(context, bmp, blur.coerceIn(1, 25).toFloat())
-            }
-            if (dim > 0) {
-                bmp = applyDim(bmp, dim.coerceIn(0, 80) / 100f)
-            }
+            val bmp = applyDim(original, dim.coerceIn(0, 80) / 100f)
             val baos = ByteArrayOutputStream()
             bmp.compress(Bitmap.CompressFormat.JPEG, 90, baos)
             ByteArrayInputStream(baos.toByteArray()).use {
@@ -133,7 +118,7 @@ object WallpaperEngine {
     }
 
     private fun applyDim(src: Bitmap, amount: Float): Bitmap {
-        val out = src.copy(Bitmap.Config.ARGB_8888, true)
+        val out = src.copy(Bitmap.Config.ARGB_8888, true) ?: return src
         val canvas = Canvas(out)
         val matrix = ColorMatrix().apply {
             setScale(1 - amount, 1 - amount, 1 - amount, 1f)
@@ -144,32 +129,6 @@ object WallpaperEngine {
         canvas.drawBitmap(src, 0f, 0f, paint)
         return out
     }
-
-    /** Lightweight approximate blur without depending on deprecated RS on all APIs. */
-    private fun softBlur(context: Context, src: Bitmap, radius: Float): Bitmap {
-        return try {
-            if (BuildVersionHasRs()) {
-                @Suppress("DEPRECATION")
-                val rs = RenderScript.create(context)
-                val input = Allocation.createFromBitmap(rs, src)
-                val output = Allocation.createTyped(rs, input.type)
-                val script = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs))
-                script.setRadius(radius.coerceIn(1f, 25f))
-                script.setInput(input)
-                script.forEach(output)
-                val out = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
-                output.copyTo(out)
-                rs.destroy()
-                out
-            } else {
-                src
-            }
-        } catch (_: Exception) {
-            src
-        }
-    }
-
-    private fun BuildVersionHasRs(): Boolean = true
 
     private fun readImageList(prefs: android.content.SharedPreferences): List<String> {
         val raw = prefs.getString(KEY_IMAGES, null) ?: return emptyList()

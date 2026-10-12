@@ -1,33 +1,25 @@
 # WallShift
 
-Flutter wallpaper rotation app with a native Android background engine.
+Flutter wallpaper rotation with a native Android background engine.
 
-Rotates wallpapers on **screen wake**, on a **timed interval** (AlarmManager), and with a **WorkManager** watchdog (15‑minute floor). Survives reboot via `BOOT_COMPLETED`.
+## Features (v1.1)
 
-## Install (phone-only)
+- Auto-rotate on **screen wake** + timed AlarmManager + WorkManager watchdog
+- **Crop / fit** photos to phone aspect before adding
+- **Themes:** Ember, Glass, Light, AMOLED
+- **Offline packs:** Motivation, Faith, Focus, Calm, Dark Aesthetic (generated on device)
+- **Blur & dim** for icon readability
+- **Hide app icon** (reopen from notification)
+- Home / lock / both targets, shuffle, intervals 5–120 min
+- HyperOS/MIUI onboarding (battery + autostart)
 
-1. Open this repo on GitHub → **Actions** → **Build APK**
-2. Open the latest successful run → **Artifacts** → download **wallshift-apk**
-3. Unzip if needed → install `app-release.apk` on your Android phone  
-   (allow install from browser/files if prompted)
+Video live wallpapers are planned for a later release.
 
-On HyperOS/MIUI (POCO, Redmi, Xiaomi): during onboarding, set **No battery restrictions** and enable **Autostart**, or rotation may stop after idle.
+## Install from phone
 
-## Build locally
+1. Repo → **Actions** → **Build APK** → latest green run
+2. **Artifacts** → **wallshift-apk** → download → install `app-release.apk`
 
-```bash
-# Requires Flutter SDK
-flutter create --org com.nuel --project-name wallshift -a kotlin -i swift wallshift_local
-# Then copy lib/, pubspec.yaml, and android_native Kotlin + manifest as in CI
-cd wallshift_local && flutter pub get && flutter run
-```
+## Privacy
 
-Or push to `main` / run **workflow_dispatch** — CI scaffolds and builds the release APK for you.
-
-## Features
-
-- Pick & reorder images (stored in app documents so they survive reboots)
-- Auto-rotate on screen wake + timed backup (5–120 min)
-- Home / lock / both targets, shuffle on/off
-- Change wallpaper now
-- Onboarding for photo access + battery/autostart (HyperOS)
+Photos and packs stay on-device. No account. Packs are rendered offline.
