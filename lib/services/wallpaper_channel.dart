@@ -1,7 +1,5 @@
 import 'package:flutter/services.dart';
 
-/// Bridge to the native Android side. WallpaperManager, the foreground
-/// service, AlarmManager and WorkManager all live in Kotlin.
 class WallpaperChannel {
   static const _channel = MethodChannel('wallshift/native');
 
@@ -29,7 +27,6 @@ class WallpaperChannel {
     await _channel.invokeMethod('requestIgnoreBatteryOptimization');
   }
 
-  /// Best-effort: opens MIUI/HyperOS Security autostart screen if present.
   static Future<bool> openAutostartSettings() async {
     final result = await _channel.invokeMethod<bool>('openAutostartSettings');
     return result ?? false;
@@ -43,5 +40,14 @@ class WallpaperChannel {
 
   static Future<void> requestExactAlarmPermission() async {
     await _channel.invokeMethod('requestExactAlarmPermission');
+  }
+
+  /// Hide or show the launcher icon. When hidden, open via notification.
+  static Future<void> setLauncherIconVisible(bool visible) async {
+    await _channel.invokeMethod('setLauncherIconVisible', {'visible': visible});
+  }
+
+  static Future<void> showKeepAliveNotification() async {
+    await _channel.invokeMethod('showKeepAliveNotification');
   }
 }
