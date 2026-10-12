@@ -10,9 +10,6 @@ import android.graphics.BitmapFactory
 import android.widget.RemoteViews
 import org.json.JSONArray
 
-/**
- * Glass-styled home screen widget: preview + Change now + open app.
- */
 class WallShiftWidget : AppWidgetProvider() {
 
     override fun onUpdate(
@@ -77,11 +74,10 @@ class WallShiftWidget : AppWidgetProvider() {
             }
             views.setTextViewText(R.id.widget_status, status)
             views.setTextViewText(
-                R.id.widget_toggle_label,
+                R.id.widget_toggle,
                 if (enabled) "Pause" else "Start"
             )
 
-            // Preview: current or first image
             val previewPath = when {
                 images.isEmpty() -> null
                 index in images.indices -> images[index]
@@ -89,9 +85,7 @@ class WallShiftWidget : AppWidgetProvider() {
             }
             if (previewPath != null) {
                 try {
-                    val opts = BitmapFactory.Options().apply {
-                        inSampleSize = 4
-                    }
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
                     val bmp = BitmapFactory.decodeFile(previewPath, opts)
                     if (bmp != null) {
                         views.setImageViewBitmap(R.id.widget_preview, bmp)
@@ -114,39 +108,30 @@ class WallShiftWidget : AppWidgetProvider() {
                 )
             }
 
-            // Open app
             val openIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
             val openPi = PendingIntent.getActivity(
-                context,
-                10,
-                openIntent,
+                context, 10, openIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             views.setOnClickPendingIntent(R.id.widget_root, openPi)
             views.setOnClickPendingIntent(R.id.widget_preview, openPi)
 
-            // Change now
             val changeIntent = Intent(context, WallShiftWidget::class.java).apply {
                 action = ACTION_CHANGE_NOW
             }
             val changePi = PendingIntent.getBroadcast(
-                context,
-                11,
-                changeIntent,
+                context, 11, changeIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             views.setOnClickPendingIntent(R.id.widget_change, changePi)
 
-            // Toggle
             val toggleIntent = Intent(context, WallShiftWidget::class.java).apply {
                 action = ACTION_TOGGLE
             }
             val togglePi = PendingIntent.getBroadcast(
-                context,
-                12,
-                toggleIntent,
+                context, 12, toggleIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             views.setOnClickPendingIntent(R.id.widget_toggle, togglePi)
@@ -154,9 +139,7 @@ class WallShiftWidget : AppWidgetProvider() {
             appWidgetManager.updateAppWidget(appWidgetId, views)
         }
 
-        private fun readImages(
-            prefs: android.content.SharedPreferences
-        ): List<String> {
+        private fun readImages(prefs: android.content.SharedPreferences): List<String> {
             val raw = prefs.getString("flutter.wallshift_images", null) ?: return emptyList()
             return try {
                 val arr = JSONArray(raw)

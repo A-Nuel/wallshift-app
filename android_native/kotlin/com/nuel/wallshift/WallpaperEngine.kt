@@ -68,11 +68,13 @@ object WallpaperEngine {
         )
         if (success) {
             prefs.edit().putInt(KEY_INDEX, nextIndex).apply()
+            WallShiftWidget.refreshAll(context)
         } else {
             val pruned = images.toMutableList().also { it.removeAt(nextIndex) }
             prefs.edit()
                 .putString(KEY_IMAGES, JSONArray(pruned).toString())
                 .apply()
+            WallShiftWidget.refreshAll(context)
         }
         return success
     }
